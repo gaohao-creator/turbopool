@@ -9,8 +9,8 @@ import (
 	"github.com/gaohao-creator/turbopool/options"
 )
 
-func TestPoolWithFunc(t *testing.T) {
-	pool, _ := NewPoolWithFuncDefaultHandler(5, options.WithExpiryDuration(10*time.Second))
+func TestPoolWithGeneric(t *testing.T) {
+	pool, _ := NewPoolDefaultHandler(5, options.WithExpiryDuration(10*time.Second))
 	defer pool.Release()
 	var wg sync.WaitGroup
 	wg.Add(20)
@@ -29,9 +29,9 @@ func TestPoolWithFunc(t *testing.T) {
 	fmt.Println("done")
 }
 
-func TestPoolWithFunc_2(t *testing.T) {
-	pool, _ := NewPoolWithFuncDefaultWorkers(5, func(f func()) {
-		f()
+func TestPoolDefaultWorkers_func(t *testing.T) {
+	pool, _ := NewPoolDefaultWorkers(5, func(task func()) {
+		task()
 	}, options.WithExpiryDuration(10*time.Second))
 	defer pool.Release()
 	var wg sync.WaitGroup
@@ -48,5 +48,21 @@ func TestPoolWithFunc_2(t *testing.T) {
 		}
 	}
 	wg.Wait()
-	fmt.Println("done")
+}
+
+func TestPoolDefaultWorkers_int(t *testing.T) {
+	pool, _ := NewPoolDefaultWorkers(5, func(task int) {
+		task++
+	}, options.WithExpiryDuration(10*time.Second))
+	defer pool.Release()
+	var wg sync.WaitGroup
+	wg.Add(20)
+	for j := 0; j < 20; j++ {
+		i := j
+		err := pool.Submit(i)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+	wg.Wait()
 }
