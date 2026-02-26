@@ -5,12 +5,10 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/gaohao-creator/turbopool/options"
 )
 
 func TestPoolWithFunc(t *testing.T) {
-	pool, _ := NewPoolWithFuncDefaultHandler(5, options.WithExpiryDuration(10*time.Second))
+	pool, _ := NewPoolWithFuncDefaultHandler(5, WithExpiryDuration(10*time.Second))
 	defer pool.Release()
 	var wg sync.WaitGroup
 	wg.Add(20)
@@ -32,7 +30,7 @@ func TestPoolWithFunc(t *testing.T) {
 func TestPoolWithFunc_2(t *testing.T) {
 	pool, _ := NewPoolWithFuncDefaultWorkers(5, func(f func()) {
 		f()
-	}, options.WithExpiryDuration(10*time.Second))
+	}, WithExpiryDuration(10*time.Second))
 	defer pool.Release()
 	var wg sync.WaitGroup
 	wg.Add(20)

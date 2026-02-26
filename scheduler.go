@@ -1,4 +1,4 @@
-package scheduler_func
+package turbopool
 
 import (
 	"runtime/debug"
@@ -7,15 +7,10 @@ import (
 	"time"
 
 	"github.com/gaohao-creator/turbopool/errors"
-	"github.com/gaohao-creator/turbopool/options"
+	"github.com/gaohao-creator/turbopool/scheduler_generic"
 )
 
-const (
-	STATE_OPENED = int32(iota)
-	STATE_CLOSED
-)
-
-type SchedulerWithFunc struct {
+type scheduler[T any] struct {
 	// 整体状态
 	state    atomic.Int32  // 状态（开、关）
 	lock     *sync.Mutex   // 互斥锁
@@ -24,19 +19,19 @@ type SchedulerWithFunc struct {
 	doneOnce *sync.Once    // 仅关闭一次
 
 	// worker容器
-	capacity     atomic.Int32    // 允许同时存在的最多worker数量
-	readyWorkers WorkersWithFunc // 就绪的worker队列（正在Run的）
-	cacheWorkers *sync.Pool      // 对象池 （没在Run的）
-	running      atomic.Int32    // 正在运行的worker数量
-	waiting      atomic.Int32    // 等待的任务数
+	capacity     atomic.Int32                 // 允许同时存在的最多worker数量
+	readyWorkers scheduler_generic.Workers[T] // 就绪的worker队列（正在Run的）
+	cacheWorkers *sync.Pool                   // 对象池 （没在Run的）
+	running      atomic.Int32                 // 正在运行的worker数量
+	waiting      atomic.Int32                 // 等待的任务数
 
 	// 任务运行层次控制
-	preHook  func()       // 前置钩子
-	postHook func()       // 后置钩子
-	handler  func(func()) // 任务处理函数,可设置一些前置钩子和后置钩子（pre-hook \ post-hook）
+	preHook  func()  // 前置钩子
+	postHook func()  // 后置钩子
+	handler  func(T) // 任务处理函数,可设置一些前置钩子和后置钩子（pre-hook \ post-hook）
 
 	// option
-	options *options.Options // 配置选项
+	options *Options // 配置选项
 	//Nonblocking      bool             // 是否开始阻塞功能
 	//MaxBlockingTasks int32            // 阻塞模式下最大阻塞数量
 	//ExpiryDuration   time.Duration    // worker 空闲过期时间
@@ -45,7 +40,7 @@ type SchedulerWithFunc struct {
 }
 
 // 获取worker
-func (s *SchedulerWithFunc) Get() (WorkerWithFunc, error) {
+func (s *scheduler[T]) Get() (scheduler_generic.Worker[T], error) {
 	// 1) 先尝试从 ready 队列获取
 	if w, err := s.readyWorkers.Pop(); err == nil {
 		return w, nil
@@ -63,14 +58,14 @@ func (s *SchedulerWithFunc) Get() (WorkerWithFunc, error) {
 	}
 
 	// 3) 需要新建 worker
-	w := s.cacheWorkers.Get().(WorkerWithFunc)
+	w := s.cacheWorkers.Get().(scheduler_generic.Worker[T])
 	w.Run()
 	s.addRunning(1)
 	return w, nil
 }
 
 // 将worker放入就绪队列
-func (s *SchedulerWithFunc) PutReady(w WorkerWithFunc) error {
+func (s *scheduler[T]) PutReady(w scheduler_generic.Worker[T]) error {
 	// 调度器已关闭或无空闲容量时不归还，返回 false 使 worker 结束并走 Cache
 	if s.state.Load() == STATE_CLOSED {
 		return errors.ErrorSchedulerClosed
@@ -84,7 +79,7 @@ func (s *SchedulerWithFunc) PutReady(w WorkerWithFunc) error {
 }
 
 // 将worker放入sync.Pool
-func (s *SchedulerWithFunc) PutCache(w WorkerWithFunc) error {
+func (s *scheduler[T]) PutCache(w scheduler_generic.Worker[T]) error {
 	s.addRunning(-1)
 	s.cacheWorkers.Put(w)
 	s.cond.Signal()
@@ -92,7 +87,7 @@ func (s *SchedulerWithFunc) PutCache(w WorkerWithFunc) error {
 }
 
 // 统一处理任务 panic，优先使用自定义处理器或日志
-func (s *SchedulerWithFunc) Recover() {
+func (s *scheduler[T]) Recover() {
 	p := recover()
 	if p == nil {
 		return
@@ -107,11 +102,11 @@ func (s *SchedulerWithFunc) Recover() {
 	}
 }
 
-func (s *SchedulerWithFunc) Handler() func(func()) {
+func (s *scheduler[T]) Handler() func(T) {
 	return s.handler
 }
 
-func (s *SchedulerWithFunc) ClearExpired(duration time.Duration) {
+func (s *scheduler[T]) ClearExpired(duration time.Duration) {
 	if s.readyWorkers.IsEmpty() {
 		return
 	}
@@ -127,7 +122,7 @@ func (s *SchedulerWithFunc) ClearExpired(duration time.Duration) {
 }
 
 // Release 关闭调度器并清空就绪的worker，同时避免阻塞的goroutine泄露
-func (s *SchedulerWithFunc) Release() {
+func (s *scheduler[T]) Release() {
 	s.Close()
 
 	// 清空就绪 worker 释放内存
@@ -144,14 +139,14 @@ func (s *SchedulerWithFunc) Release() {
 	}
 }
 
-func (s *SchedulerWithFunc) Wait() {
+func (s *scheduler[T]) Wait() {
 	if s.Running() > 0 {
 		<-s.Done()
 	}
 }
 
 // ReleaseWithWait 释放调度器并等待全部结束。
-func (s *SchedulerWithFunc) ReleaseWithWait() {
+func (s *scheduler[T]) ReleaseWithWait() {
 	s.Release()
 	s.Wait()
 }
@@ -160,54 +155,54 @@ func (s *SchedulerWithFunc) ReleaseWithWait() {
 /* 监控需求 */
 /* ------------------------------------------------- */
 
-func (s *SchedulerWithFunc) Cap() int32 {
+func (s *scheduler[T]) Cap() int32 {
 	return s.capacity.Load()
 }
 
-func (s *SchedulerWithFunc) Free() int32 {
+func (s *scheduler[T]) Free() int32 {
 	return s.capacity.Load() - s.running.Load()
 }
 
-func (s *SchedulerWithFunc) Running() int32 {
+func (s *scheduler[T]) Running() int32 {
 	return s.running.Load()
 }
 
-func (s *SchedulerWithFunc) Waiting() int32 {
+func (s *scheduler[T]) Waiting() int32 {
 	return s.waiting.Load()
 }
 
-func (s *SchedulerWithFunc) Open() {
+func (s *scheduler[T]) Open() {
 	s.state.Store(STATE_OPENED)
 }
 
-func (s *SchedulerWithFunc) Close() {
+func (s *scheduler[T]) Close() {
 	s.state.Store(STATE_CLOSED)
 }
 
 // Opened 判断调度器是否已开启。
-func (s *SchedulerWithFunc) Opened() bool {
+func (s *scheduler[T]) Opened() bool {
 	return s.state.Load() == STATE_OPENED
 }
 
 // Closed 判断调度器是否已关闭。
-func (s *SchedulerWithFunc) Closed() bool {
+func (s *scheduler[T]) Closed() bool {
 	return s.state.Load() == STATE_CLOSED
 }
 
-func (s *SchedulerWithFunc) Done() chan struct{} {
+func (s *scheduler[T]) Done() chan struct{} {
 	return s.done
 }
 
-func (s *SchedulerWithFunc) Scale(cap int32) {
+func (s *scheduler[T]) Scale(cap int32) {
 	s.capacity.Store(cap)
 }
 
-func (s *SchedulerWithFunc) addRunning(delta int32) int32 {
+func (s *scheduler[T]) addRunning(delta int32) int32 {
 	return s.running.Add(delta)
 }
 
 // blocking 阻塞获取worker
-func (s *SchedulerWithFunc) blocking() error {
+func (s *scheduler[T]) blocking() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	// 检查调度器是否开启
@@ -231,13 +226,13 @@ func (s *SchedulerWithFunc) blocking() error {
 	return nil
 }
 
-func NewScheduler(
+func NewSchedulerGeneric[T any](
 	cap int32,
-	workers WorkersWithFunc,
-	workerFunc func(Scheduler) WorkerWithFunc, // 工厂函数
-	handler func(func()),
-	opts *options.Options) *SchedulerWithFunc {
-	s := &SchedulerWithFunc{
+	workers scheduler_generic.Workers[T],
+	workerFunc func(scheduler_generic.Scheduler[T]) scheduler_generic.Worker[T], // 工厂函数
+	handler func(T),
+	opts *Options) scheduler_generic.Scheduler[T] {
+	s := &scheduler[T]{
 		state:        atomic.Int32{},
 		lock:         &sync.Mutex{},
 		done:         make(chan struct{}),

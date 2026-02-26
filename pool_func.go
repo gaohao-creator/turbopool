@@ -3,24 +3,18 @@ package turbopool
 import (
 	"context"
 
-	ctx "github.com/gaohao-creator/turbopool/context"
-	"github.com/gaohao-creator/turbopool/options"
-
 	"sync/atomic"
 	"time"
+
+	ctx "github.com/gaohao-creator/turbopool/context"
 
 	"github.com/gaohao-creator/turbopool/errors"
 	"github.com/gaohao-creator/turbopool/scheduler_func"
 )
 
-const (
-	STATE_OPENED = int32(iota)
-	STATE_CLOSED
-)
-
 type PoolWithFunc struct {
 	// 池子配置选项
-	options *options.Options
+	options *Options
 	// 任务调度器，负责管理worker和任务分发
 	scheduler scheduler_func.Scheduler
 	// 池子状态，关闭后无法提交任务
@@ -199,11 +193,11 @@ func NewPoolWithFunc(
 	cap int,
 	workersCreator WorkersWithFuncCreator,
 	fn func(func()),
-	opt ...options.Option,
+	opt ...Option,
 ) (*PoolWithFunc, error) {
 	workers, _ := workersCreator(cap)
-	opts := options.NewOptions(opt...)
-	scheduler := scheduler_func.NewScheduler(int32(cap), workers, WorkerWithFuncCreator, fn, opts)
+	opts := NewOptions(opt...)
+	scheduler := NewScheduler(int32(cap), workers, WorkerWithFuncCreator, fn, opts)
 
 	// New pool
 	p := &PoolWithFunc{
@@ -223,7 +217,7 @@ func NewPoolWithFunc(
 func NewPoolWithFuncDefaultWorkers(
 	cap int,
 	fn func(func()),
-	options ...options.Option,
+	options ...Option,
 ) (*PoolWithFunc, error) {
 	return NewPoolWithFunc(cap, scheduler_func.NewWorkersStackWithFunc, fn, options...)
 }
@@ -232,7 +226,7 @@ func NewPoolWithFuncDefaultWorkers(
 // cap是调度器容量，options是调度器配置选项。
 func NewPoolWithFuncDefaultHandler(
 	cap int,
-	options ...options.Option,
+	options ...Option,
 ) (*PoolWithFunc, error) {
 	return NewPoolWithFunc(cap, scheduler_func.NewWorkersStackWithFunc, func(task func()) {
 		task()

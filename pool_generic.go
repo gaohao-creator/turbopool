@@ -7,15 +7,13 @@ import (
 	"time"
 
 	ctx "github.com/gaohao-creator/turbopool/context"
-	"github.com/gaohao-creator/turbopool/options"
-
 	"github.com/gaohao-creator/turbopool/errors"
 	"github.com/gaohao-creator/turbopool/scheduler_generic"
 )
 
 type Pool[T any] struct {
 	// 池子配置选项
-	options *options.Options
+	options *Options
 	// 任务调度器，负责管理worker和任务分发
 	scheduler scheduler_generic.Scheduler[T]
 	// 池子状态，关闭后无法提交任务
@@ -194,11 +192,11 @@ func NewPool[T any](
 	cap int,
 	workersCreator WorkersCreator[T],
 	fn func(T),
-	opt ...options.Option,
+	opt ...Option,
 ) (*Pool[T], error) {
 	workers, _ := workersCreator(cap)
-	opts := options.NewOptions(opt...)
-	scheduler := scheduler_generic.NewScheduler(int32(cap), workers, scheduler_generic.NewWorker[T], fn, opts)
+	opts := NewOptions(opt...)
+	scheduler := NewSchedulerGeneric(int32(cap), workers, scheduler_generic.NewWorker[T], fn, opts)
 
 	// New pool
 	p := &Pool[T]{
@@ -218,7 +216,7 @@ func NewPool[T any](
 func NewPoolDefaultWorkers[T any](
 	cap int,
 	fn func(T),
-	options ...options.Option,
+	options ...Option,
 ) (*Pool[T], error) {
 	return NewPool(cap, scheduler_generic.NewWorkersStack[T], fn, options...)
 }
@@ -227,7 +225,7 @@ func NewPoolDefaultWorkers[T any](
 // cap是调度器容量，options是调度器配置选项。
 func NewPoolDefaultHandler(
 	cap int,
-	options ...options.Option,
+	options ...Option,
 ) (*Pool[func()], error) {
 	return NewPool(cap, scheduler_generic.NewWorkersStack[func()], func(task func()) {
 		task()
